@@ -96,6 +96,7 @@ def onclose(client: socket.socket):
 # PART 初始化服务器
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(("0.0.0.0", SERVER_PORT))
+server.listen(4096)
 print(f"服务器在 {SERVER_PORT} 端口启动")
 # END
 
