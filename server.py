@@ -35,11 +35,19 @@ def recv_all(client: socket.socket) -> str:
 # END
 
 
+# PART 配套的发送消息
+def send_msg(client: socket.socket, msg: str):
+    client.sendall(len(msg).to_bytes(4, byteorder="big") + msg.encode("utf-8"))
+
+
+# END
+
+
 # PART 转发消息处理
 def broadcast(message: str, exclude: list[str] = []):
     for nickname, client in CLIENTS.items():
         if nickname not in exclude:
-            client.send(message.encode("utf-8"))
+            send_msg(client, message)
 
 
 # END
@@ -50,11 +58,11 @@ def onconn(client: socket.socket, address):
 
     # PART 请求用户名称
     while True:
-        client.send("用户名: \n".encode("utf-8"))
+        send_msg(client, "用户名: \n")
         nickname = recv_all(client).strip()
         if nickname not in CLIENTS and len(nickname) > 0 and len(nickname) < 10:
             break
-        client.send("用户名不合法\n")
+        send_msg(client, "用户名不合法\n")
     # END
 
     # PART 注册客户端

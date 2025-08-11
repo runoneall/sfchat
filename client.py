@@ -31,6 +31,14 @@ def recv_all(client: socket.socket) -> str:
 # END
 
 
+# PART 配套的发送消息
+def send_msg(client: socket.socket, msg: str):
+    client.sendall(len(msg).to_bytes(4, byteorder="big") + msg.encode("utf-8"))
+
+
+# END
+
+
 # PART 接收消息
 def onrecv(client: socket.socket):
     while True:
@@ -48,7 +56,7 @@ def onsend(client: socket.socket):
         if msg == "EXIT":
             STOP_FLAG.set()
             break
-        client.send(msg)
+        send_msg(client, msg + "\n")
 
 
 # END
