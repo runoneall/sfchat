@@ -8,6 +8,39 @@ app = flask.Flask(__name__)
 all_sub: list[str] = []
 
 
+# 广播消息
+def broadcast(path: str, message: str):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = []
+
+        # 准备任务
+        all_sub_copy = all_sub.copy()
+        for sub_name in all_sub_copy:
+
+            def job(sub_name, path, message):
+
+                # 获取订阅链接
+                with open(f"/everyone/{sub_name}/chat_sub_address") as f:
+                    sub_address = "http://" + f.read().replace("\n", "")
+
+                # 发送消息
+                try:
+                    requests.post(sub_address + path, data=message)
+
+                # 不能完成消息
+                except:
+                    all_sub.remove(sub_name)
+
+            futures.append(executor.submit(job, sub_name, path, message))
+
+        # 等待任务完成
+        concurrent.futures.wait(futures)
+
+        # 是否有无效的订阅
+        if all_sub != all_sub_copy:
+            broadcast("/people", "\n".join(all_sub))
+
+
 # 检查连接
 @app.route("/ping")
 def on_ping():
@@ -26,13 +59,14 @@ def on_sub_add():
     # 添加到订阅
     if sf_name not in all_sub:
         all_sub.append(sf_name)
+        broadcast("/people", "\n".join(all_sub))
         return "添加成功", 200
     else:
         return "该服务器已经在订阅列表中", 409
 
 
 # 获取订阅列表
-@app.route("/sub/list")
+@app.route("/sub/list", methods=["GET"])
 def on_sub_list():
     return "\n".join(all_sub), 200
 
@@ -50,30 +84,7 @@ def on_msg():
     msg_content = flask.request.data.decode("utf-8")
 
     # 向订阅者发送消息
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = []
-
-        # 准本任务
-        all_sub_copy = all_sub.copy()
-        for sub_name in all_sub_copy:
-
-            def job(sub_name, sf_name, msg_content):
-
-                # 获取订阅链接
-                with open(f"/everyone/{sub_name}/chat_sub_address") as f:
-                    sub_address = "http://" + f.read().replace("\n", "")
-
-                # 发送消息
-                resp = requests.post(sub_address, data=f"[{sf_name}] {msg_content}")
-
-                # 不能完成消息
-                if resp.status_code != 200:
-                    all_sub.remove(sf_name)
-
-            futures.append(executor.submit(job, sub_name, sf_name, msg_content))
-
-        # 等待任务完成
-        concurrent.futures.wait(futures)
+    broadcast("/", f"[{sf_name}] {msg_content}")
 
     return "发送成功", 200
 

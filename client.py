@@ -1,9 +1,9 @@
 import os
-import time
 import socket
 import flask
 import requests
 import threading
+import queue
 import tkinter as tk
 from tkinter import messagebox
 
@@ -63,8 +63,6 @@ def connect_backend():
     backend_url.set(url)
     is_connected.set("已连接")
 
-    threading.Thread(target=fetch_onlines, daemon=True).start()
-
 
 # top_frame
 top_row1_wrapper = tk.Frame(top_frame)
@@ -95,47 +93,42 @@ tk.Label(top_row2_wrapper, text="后端地址:").grid(row=0, column=2)
 tk.Label(top_row2_wrapper, textvariable=backend_url, bg="gray").grid(row=0, column=3)
 
 # left_frame
-onlineList = tk.Variable()
-onlineList.set([])
+all_people: list[str] = []
+online_queue = queue.Queue()
 
 onlines = tk.Listbox(left_frame)
 onlines.place(width=200, height=400, x=0, y=0)
 
 
-# left_frame (function)
-def update_onlines(*args):
+# 更新在线列表
+def update_onlines():
+    try:
+        online_people = online_queue.get_nowait()
+        global all_people
+        all_people = online_people
+    except queue.Empty:
+        pass
+
     onlines.delete(0, "end")
-    for name in onlineList.get():
+    for name in all_people:
         onlines.insert("end", name)
 
+    win.after(1000, update_onlines)
 
-onlineList.trace_add("write", update_onlines)
+
+update_onlines()
 
 
-def fetch_onlines():
-    url = backend_url.get()
-    last_online_list = []
+@app.route("/people", methods=["POST"])
+def refresh_onlines():
+    online_people = flask.request.data.decode("utf-8").split("\n")
+    online_queue.put(online_people)
 
-    while True:
-        if is_connected.get() == "未连接":
-            break
-
-        resp = requests.get(f"{url}/sub/list")
-        online_list = resp.text.split("\n")
-
-        if SF_HOSTNAME not in online_list:
-            backend_url.set("无法获取")
-            is_connected.set("未连接")
-
-        if last_online_list != online_list:
-            last_online_list = online_list
-            onlineList.set(online_list)
-
-        time.sleep(1)
+    return "OK", 200
 
 
 # right_frame (function)
-def to(*args, **kwargs):
+def to(*args):
     def wrapper():
         url = backend_url.get()
         msg = input_str.get()
