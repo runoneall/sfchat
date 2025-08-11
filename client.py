@@ -56,7 +56,7 @@ def connect_backend():
         return
 
     resp = requests.get(f"{url}/sub/add?name={SF_HOSTNAME}")
-    if resp.status_code != 200 and resp.status_code != 409:
+    if resp.status_code != 200:
         messagebox.showerror("无法注册", f"无法注册此客户机 {resp.status_code}")
         return
 

@@ -59,10 +59,9 @@ def on_sub_add():
     # 添加到订阅
     if sf_name not in all_sub:
         all_sub.append(sf_name)
-        broadcast("/people", "\n".join(all_sub))
-        return "添加成功", 200
-    else:
-        return "该服务器已经在订阅列表中", 409
+
+    broadcast("/people", "\n".join(all_sub))
+    return "添加成功", 200
 
 
 # 获取订阅列表
