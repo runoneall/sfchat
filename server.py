@@ -50,7 +50,7 @@ def onconn(client: socket.socket, address):
 
     # PART 请求用户名称
     while True:
-        client.send("用户名: ".encode("utf-8"))
+        client.send("用户名: \n".encode("utf-8"))
         nickname = recv_all(client).strip()
         if nickname not in CLIENTS and len(nickname) > 0 and len(nickname) < 10:
             break
