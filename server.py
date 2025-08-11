@@ -37,23 +37,6 @@ def on_sub_list():
     return "\n".join(all_sub), 200
 
 
-# 移除订阅
-@app.route("/sub/remove", methods=["GET"])
-def on_sub_remove():
-
-    # 读取SF服务器名
-    sf_name = flask.request.args.get("name")
-    if not sf_name:
-        return "缺少服务器名 ?name=$SF_HOSTNAME", 400
-
-    # 从订阅中移除
-    if sf_name in all_sub:
-        all_sub.remove(sf_name)
-        return "移除成功", 200
-    else:
-        return "该服务器不在订阅列表中", 404
-
-
 # 开始消息
 @app.route("/msg", methods=["POST"])
 def on_msg():
@@ -71,18 +54,21 @@ def on_msg():
         futures = []
 
         # 准本任务
-        for sub_name in all_sub:
-            if sub_name == sf_name:
-                continue
+        all_sub_copy = all_sub.copy()
+        for sub_name in all_sub_copy:
 
             def job(sub_name, sf_name, msg_content):
 
                 # 获取订阅链接
                 with open(f"/everyone/{sub_name}/chat_sub_address") as f:
-                    sub_address = f.read().strip()
+                    sub_address = "http://" + f.read().replace("\n", "")
 
                 # 发送消息
-                requests.post(sub_address, data=f"[{sf_name}] {msg_content}")
+                resp = requests.post(sub_address, data=f"[{sf_name}] {msg_content}")
+
+                # 不能完成消息
+                if resp.status_code != 200:
+                    all_sub.remove(sf_name)
 
             futures.append(executor.submit(job, sub_name, sf_name, msg_content))
 

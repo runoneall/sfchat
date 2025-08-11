@@ -1,9 +1,11 @@
 import os
+import time
 import socket
 import flask
 import requests
 import threading
 import tkinter as tk
+from tkinter import messagebox
 
 # 全局变量
 SF_LID = os.environ["SF_LID"]
@@ -35,7 +37,33 @@ top_frame.rowconfigure(1, minsize=50)
 
 # top_frame (function)
 def connect_backend():
-    print(backend_name.get())
+    name = backend_name.get()
+    server_file = f"/everyone/{name}/chat_server_address"
+
+    backend_url.set("无法获取")
+    is_connected.set("未连接")
+
+    if not os.path.exists(server_file):
+        messagebox.showerror("后端未开启", f"找不到 {server_file}")
+        return
+
+    with open(server_file, "r", encoding="utf-8") as f:
+        url = "http://" + f.read().replace("\n", "")
+
+    resp = requests.get(f"{url}/ping")
+    if resp.status_code != 200 or resp.text != "pong":
+        messagebox.showerror("后端未开启", f"无法测试连接 {url}/ping")
+        return
+
+    resp = requests.get(f"{url}/sub/add?name={SF_HOSTNAME}")
+    if resp.status_code != 200 and resp.status_code != 409:
+        messagebox.showerror("无法注册", f"无法注册此客户机 {resp.status_code}")
+        return
+
+    backend_url.set(url)
+    is_connected.set("已连接")
+
+    threading.Thread(target=fetch_onlines, daemon=True).start()
 
 
 # top_frame
@@ -52,8 +80,8 @@ backend_name = tk.StringVar()
 backend_url = tk.StringVar()
 is_connected = tk.StringVar()
 
-backend_url.set("未连接")
-is_connected.set("无法获取")
+backend_url.set("无法获取")
+is_connected.set("未连接")
 
 tk.Label(top_row1_wrapper, text="客户机:").grid(row=0, column=0)
 tk.Label(top_row1_wrapper, text=SF_HOSTNAME, bg="gray").grid(row=0, column=1)
@@ -84,33 +112,65 @@ def update_onlines(*args):
 onlineList.trace_add("write", update_onlines)
 
 
+def fetch_onlines():
+    url = backend_url.get()
+    last_online_list = []
+
+    while True:
+        if is_connected.get() == "未连接":
+            break
+
+        resp = requests.get(f"{url}/sub/list")
+        online_list = resp.text.split("\n")
+
+        if SF_HOSTNAME not in online_list:
+            backend_url.set("无法获取")
+            is_connected.set("未连接")
+
+        if last_online_list != online_list:
+            last_online_list = online_list
+            onlineList.set(online_list)
+
+        time.sleep(1)
+
+
 # right_frame (function)
-def to():
-    print(input_str.get())
+def to(*args, **kwargs):
+    def wrapper():
+        url = backend_url.get()
+        msg = input_str.get()
+
+        resp = requests.post(f"{url}/msg?name={SF_HOSTNAME}", data=msg.encode("utf-8"))
+        if resp.status_code != 200:
+            messagebox.showerror("不能发送消息", f"状态码: {resp.status_code}")
+
+    threading.Thread(target=wrapper, daemon=True).start()
 
 
 # right_frame
 input_str = tk.StringVar()
-msgList = tk.Variable()
-
 input_str.set("")
-msgList.set([])
 
 msg_box = tk.Text(right_frame, highlightthickness=0)
 msg_box.place(width=400, height=350, x=0, y=0)
 
-tk.Entry(right_frame, textvariable=input_str).place(width=350, height=50, x=0, y=350)
+input_widget = tk.Entry(right_frame, textvariable=input_str)
 tk.Button(right_frame, text="发送", command=to).place(width=50, height=50, x=350, y=350)
 
-
-# right_frame (function)
-def update_msg_box(*args):
-    msg_box.delete("1.0", "end")
-    for msg in msgList.get():
-        msg_box.insert("end", msg + "\n")
+input_widget.place(width=350, height=50, x=0, y=350)
+input_widget.bind("<Return>", to)
 
 
-msgList.trace_add("write", update_msg_box)
+# 接收消息
+@app.route("/", methods=["POST"])
+def on_recv():
+    msg = flask.request.data.decode("utf-8")
+    msg_box.insert("end", msg + "\n")
+
+    msg_box.see("end")
+    input_str.set("")
+
+    return "OK", 200
 
 
 # 随机端口
