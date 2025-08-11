@@ -1,125 +1,116 @@
 import os
 import socket
-import threading
+import flask
+import requests
+import concurrent.futures
 
-# PART 全局变量定义
-LOCAL_DOMAIN = "lg-%s.sf-guest" % os.environ["SF_LID"]
-SHARE_DIR = "/everyone/%s" % os.environ["SF_HOSTNAME"]
-SERVER_PORT = 8503
-CLIENTS: dict[str, socket.socket] = {}
-# END
-
-# PART 写入当前服务器地址
-os.system(f"echo '{LOCAL_DOMAIN}:{SERVER_PORT}' > {SHARE_DIR}/chat_server_address ")
-# END
+app = flask.Flask(__name__)
+all_sub: list[str] = []
 
 
-# PART 完全读取用户输入
-def recv_all(client: socket.socket) -> str:
-
-    # PART 读取消息长度
-    raw_length = client.recv(4)
-    if not raw_length:
-        raise ConnectionError("不能读取消息长度")
-    length = int.from_bytes(raw_length, byteorder="big")
-    # END
-
-    # PART 读取消息内容
-    msg = client.recv(length)
-    if not msg or len(msg) != length:
-        raise ConnectionError("不能读取完整消息")
-    return msg.decode("utf-8")
-    # END
+# 检查连接
+@app.route("/ping")
+def on_ping():
+    return "pong", 200
 
 
-# END
+# 添加订阅
+@app.route("/sub/add", methods=["GET"])
+def on_sub_add():
+
+    # 读取SF服务器名
+    sf_name = flask.request.args.get("name")
+    if not sf_name:
+        return "缺少服务器名 ?name=$SF_HOSTNAME", 400
+
+    # 添加到订阅
+    if sf_name not in all_sub:
+        all_sub.append(sf_name)
+        return "添加成功", 200
+    else:
+        return "该服务器已经在订阅列表中", 409
 
 
-# PART 配套的发送消息
-def send_msg(client: socket.socket, msg: str):
-    client.sendall(len(msg).to_bytes(4, byteorder="big") + msg.encode("utf-8"))
+# 获取订阅列表
+@app.route("/sub/list")
+def on_sub_list():
+    return "\n".join(all_sub), 200
 
 
-# END
+# 移除订阅
+@app.route("/sub/remove", methods=["GET"])
+def on_sub_remove():
+
+    # 读取SF服务器名
+    sf_name = flask.request.args.get("name")
+    if not sf_name:
+        return "缺少服务器名 ?name=$SF_HOSTNAME", 400
+
+    # 从订阅中移除
+    if sf_name in all_sub:
+        all_sub.remove(sf_name)
+        return "移除成功", 200
+    else:
+        return "该服务器不在订阅列表中", 404
 
 
-# PART 转发消息处理
-def broadcast(message: str, exclude: list[str] = []):
-    for nickname, client in CLIENTS.items():
-        if nickname not in exclude:
-            send_msg(client, message)
+# 开始消息
+@app.route("/msg", methods=["POST"])
+def on_msg():
+
+    # 获取发送者
+    sf_name = flask.request.args.get("name")
+    if not sf_name:
+        return "缺少服务器名 ?name=$SF_HOSTNAME", 400
+
+    # 获取消息内容
+    msg_content = flask.request.data.decode("utf-8")
+
+    # 向订阅者发送消息
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = []
+
+        # 准本任务
+        for sub_name in all_sub:
+            if sub_name == sf_name:
+                continue
+
+            def job(sub_name, sf_name, msg_content):
+
+                # 获取订阅链接
+                with open(f"/everyone/{sub_name}/chat_sub_address") as f:
+                    sub_address = f.read().strip()
+
+                # 发送消息
+                requests.post(sub_address, data=f"[{sf_name}] {msg_content}")
+
+            futures.append(executor.submit(job, sub_name, sf_name, msg_content))
+
+        # 等待任务完成
+        concurrent.futures.wait(futures)
+
+    return "发送成功", 200
 
 
-# END
+# 随机端口
+def get_free_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        s.listen(1)
+        port = s.getsockname()[1]
+    return int(port)
 
 
-# PART 客户端连接处理
-def onconn(client: socket.socket, address):
+# 启动服务
+if __name__ == "__main__":
+    port = get_free_port()
 
-    # PART 请求用户名称
-    while True:
-        send_msg(client, "用户名: \n")
-        nickname = recv_all(client).strip()
-        if nickname not in CLIENTS and len(nickname) > 0 and len(nickname) < 10:
-            break
-        send_msg(client, "用户名不合法\n")
-    # END
-
-    # PART 注册客户端
-    CLIENTS[nickname] = client
-    broadcast(f"[SYSTEM] {nickname}({address}) 已加入聊天室\n")
-    # END
-
-    # PART 进入聊天处理
-    onchat(client, nickname)
-    # END
-
-
-# END
-
-
-# PART 进入聊天处理
-def onchat(client: socket.socket, nickname: str):
-    while True:
-        uinput = recv_all(client)
-        broadcast(f"[{nickname}] {uinput}\n")
-
-
-# END
-
-
-# PART 客户端断开处理
-def onclose(client: socket.socket):
-    for nickname, uclient in CLIENTS.items():
-        if client == uclient:
-            client.close()
-            del CLIENTS[nickname]
-            broadcast(f"[SYSTEM] {nickname} 已离开聊天室\n")
-            break
-
-
-# END
-
-
-# PART 初始化服务器
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.bind(("0.0.0.0", SERVER_PORT))
-server.listen(4096)
-print(f"服务器在 {SERVER_PORT} 端口启动")
-# END
-
-# PART 客户端连接处理
-while True:
-    client, address = server.accept()
-
-    # PART 自动销毁连接
-    def autoclose(*args, **kwargs):
-        try:
-            onconn(*args, **kwargs)
-        finally:
-            onclose(client)
-
-    # END
-
-    threading.Thread(target=autoclose, args=(client, address), daemon=True).start()
-# END
+    os.system(
+        "echo '%s:%s' > %s/chat_server_address "
+        % (
+            "lg-%s.sf-guest" % os.environ["SF_LID"],
+            port,
+            "/everyone/" + os.environ["SF_HOSTNAME"],
+        )
+    )
+    app.run(debug=False, host="0.0.0.0", port=port, threaded=True)
