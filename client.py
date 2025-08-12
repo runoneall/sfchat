@@ -50,14 +50,21 @@ def connect_backend():
     with open(server_file, "r", encoding="utf-8") as f:
         url = "http://" + f.read().replace("\n", "")
 
-    resp = requests.get(f"{url}/ping")
-    if resp.status_code != 200 or resp.text != "pong":
-        messagebox.showerror("后端未开启", f"无法测试连接 {url}/ping")
-        return
+    # 尝试连接
+    try:
+        resp = requests.get(f"{url}/ping")
+        if resp.status_code != 200 or resp.text != "pong":
+            messagebox.showerror("后端未开启", f"无法测试连接 {url}/ping")
+            return
 
-    resp = requests.get(f"{url}/sub/add?name={SF_HOSTNAME}")
-    if resp.status_code != 200:
-        messagebox.showerror("无法注册", f"无法注册此客户机 {resp.status_code}")
+        resp = requests.get(f"{url}/sub/add?name={SF_HOSTNAME}")
+        if resp.status_code != 200:
+            messagebox.showerror("无法注册", f"无法注册此客户机 {resp.status_code}")
+            return
+
+    # 连接失败
+    except:
+        messagebox.showerror("后端未开启", f"无法连接到 {url}")
         return
 
     backend_url.set(url)
@@ -133,9 +140,20 @@ def to(*args):
         url = backend_url.get()
         msg = input_str.get()
 
-        resp = requests.post(f"{url}/msg?name={SF_HOSTNAME}", data=msg.encode("utf-8"))
-        if resp.status_code != 200:
-            messagebox.showerror("不能发送消息", f"状态码: {resp.status_code}")
+        # 发送成功
+        try:
+            resp = requests.post(
+                f"{url}/msg?name={SF_HOSTNAME}",
+                data=msg.encode("utf-8"),
+            )
+            if resp.status_code != 200:
+                messagebox.showerror("不能发送消息", f"状态码: {resp.status_code}")
+
+        # 发送失败
+        except:
+            backend_url.set("无法获取")
+            is_connected.set("未连接")
+            messagebox.showerror("后端未开启", f"无法连接到 {url}")
 
     threading.Thread(target=wrapper, daemon=True).start()
 
